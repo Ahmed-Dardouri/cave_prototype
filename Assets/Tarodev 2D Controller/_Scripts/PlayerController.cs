@@ -1,5 +1,7 @@
 using System;
 using System.Collections;
+using System.Runtime.CompilerServices;
+using System.Security;
 using System.Xml.Serialization;
 using Unity.VisualScripting;
 using UnityEngine;
@@ -18,18 +20,23 @@ namespace prototype
     {
         
         [SerializeField] private ScriptableStats _stats;
-        private Animator _animator;
-        
         private Rigidbody2D _rb;
         private CapsuleCollider2D _col;
         private FrameInput _frameInput;
         private Vector2 _frameVelocity;
         private bool _cachedQueryStartInColliders;
 
+        public LayerMask wallLayer;
+        public LayerMask groundLayer;
+
         private MovementTracker _MovementTracker;
         private BlastController _BlastController;
         private DashController _DashController;
         private AttackController _AttackController;
+        private StickToWallController _StickToWallController;
+        private JumpController _JumpController;
+
+        private bool _applyGravityCheck;
 
         #region Interface
 
@@ -38,7 +45,7 @@ namespace prototype
         public event Action Jumped;
 
         public GameObject BlastPrefab;
-        public GameObject AttackPrefab;
+        public GameObject AttackPrefab; 
 
         #endregion
 
@@ -48,19 +55,27 @@ namespace prototype
 
         private void Awake()
         {
-            _animator = GetComponent<Animator>();
             _rb = GetComponent<Rigidbody2D>();
             _col = GetComponent<CapsuleCollider2D>();
 
             _cachedQueryStartInColliders = Physics2D.queriesStartInColliders;
+
+            _applyGravityCheck = false;
             
             AttackControllerInit();
             BlastControllerInit();
             MovementTrackerInit();
             DashControllerInit();
+            StickToWallControllerInit();
+            JumpControllerInit();
         }
 
-
+        private void StickToWallControllerInit(){
+            _StickToWallController.StickLeft = false;
+            _StickToWallController.StickRight = false;
+            _StickToWallController.StickToWallEnabled = true;
+            _StickToWallController.Stuck = false;
+        }
         
         private void AttackControllerInit(){
             _AttackController.prefab = AttackPrefab;
@@ -83,11 +98,12 @@ namespace prototype
             _BlastController.PrefabSpawnStaticOffset = new Vector2(0, 0.7f);
             _BlastController.PrefabLifetime = 0.1f;
             _BlastController.direction = new Vector2();
+            _BlastController.powerMultiplier = 1;
 
             _BlastController.dashController.velocity = 26f;
             _BlastController.dashController.duration = 0.05f;
             _BlastController.dashController.cooldown = 0.4f;
-            _BlastController.dashController.cooldownPassed = false;
+            _BlastController.dashController.cooldownPassed = true;
             _BlastController.dashController.isDashing = false;
             _BlastController.dashController.canDash = true;
         }
@@ -108,8 +124,18 @@ namespace prototype
             _DashController.cooldown = 0.4f;
             _DashController.direction = new Vector2();
             _DashController.isDashing = false;
-            _DashController.cooldownPassed = false;
+            _DashController.cooldownPassed = true;
             _DashController.canDash = true;
+        }
+
+        private void JumpControllerInit(){
+            _JumpController.JumpToConsume = false;
+            _JumpController.BufferedJumpUsable = false;
+            _JumpController.EndedJumpEarly = false;
+            _JumpController.CoyoteUsable = false;
+            _JumpController.TimeJumpWasPressed = 0;
+            _JumpController.canJump = true;
+            _JumpController.jumpEnabled = true;
         }
 
         #endregion
@@ -123,58 +149,14 @@ namespace prototype
             CheckBlastTask();
             CheckDashTask();
             MovementTrackerTask();
+            StickToWallCheck();
+            ApplyGravityCheck();
+            
         }
 
 
 
-        #region Attack
 
-        private void AnimatorTask(){
-
-            // update grounded bool
-            _animator.SetBool("Grounded", _grounded);
-
-            // change sprite direction based on movement direction
-            if (_frameInput.Move.x > 0){
-                transform.localScale = new Vector3(-1.0f, 1.0f, 1.0f);
-            }else if (_frameInput.Move.x < 0){
-                transform.localScale = new Vector3(1.0f, 1.0f, 1.0f);
-            }
-
-            // apply animations
-
-            // if (Input.GetKeyDown("e")) {
-            //     if(!m_isDead)
-            //         m_animator.SetTrigger("Death");
-            //     else
-            //         m_animator.SetTrigger("Recover");
-
-            //     m_isDead = !m_isDead;
-            // }
-                
-            //Hurt
-            // else if (Input.GetKeyDown("q"))
-            //     m_animator.SetTrigger("Hurt");
-
-            //Attack
-
-            //Change between idle and combat idle
-            // else if (Input.GetKeyDown("f"))
-            //     m_combatIdle = !m_combatIdle;
-
-
-            //Run
-            if (Mathf.Abs(_frameInput.Move.x) > Mathf.Epsilon){
-                _animator.SetInteger("AnimState", 2);
-            }
-                
-            //Idle
-            else{
-                _animator.SetInteger("AnimState", 0);
-            }
-        }
-
-        #endregion
 
         #region Attack
         
@@ -208,7 +190,6 @@ namespace prototype
 
         private void CheckAttackTask(){
             if(Input.GetKeyDown("q") && _AttackController.dashController.canDash){
-                _animator.SetTrigger("Attack");
 
                 _AttackController.dashController.isDashing = false; /* pogo might be added */
                 _AttackController.dashController.canDash = false;  
@@ -277,13 +258,22 @@ namespace prototype
         }
 
         private void CheckBlastTask(){
-            if(Input.GetKeyDown("r") && _BlastController.dashController.canDash){
-
+            if(Input.GetKeyDown("r") && _BlastController.dashController.canDash && _BlastController.dashController.cooldownPassed){
                 _BlastController.dashController.isDashing = true;
                 _BlastController.dashController.canDash = false;  
                 _BlastController.dashController.cooldownPassed = false;
 
                 _BlastController.direction = _MovementTracker.lastMove * -1;
+
+                if((_BlastController.direction == Vector2.left && _StickToWallController.StickRight) || (_BlastController.direction == Vector2.right && _StickToWallController.StickLeft)){
+                    _BlastController.powerMultiplier = 1.3f;
+                }else if (_StickToWallController.Stuck && _BlastController.direction.y != 0){
+                    _BlastController.powerMultiplier = 0;
+                }else{
+                    _BlastController.powerMultiplier = 1;
+                }
+
+                // _StickToWallController.StickToWallEnabled = false;
 
                 BlastPrefabCreate(_BlastController.direction * -1);
 
@@ -299,21 +289,43 @@ namespace prototype
         private IEnumerator StopBlast(){
             yield return new WaitForSeconds(_BlastController.dashController.duration);
             _BlastController.dashController.isDashing = false;
+            // _StickToWallController.StickToWallEnabled = true;
             yield return new WaitForSeconds(_BlastController.dashController.cooldown);
             _BlastController.dashController.cooldownPassed = true;
         }
 
         private void RunBlast(){
             if(_BlastController.dashController.isDashing){
-                _frameVelocity = _BlastController.direction.normalized * _BlastController.dashController.velocity;
-                Debug.Log("_frameVelocity : " + _frameVelocity);
-            }else if(_grounded && _BlastController.dashController.canDash == false && _BlastController.dashController.cooldownPassed){
+                _frameVelocity = _BlastController.direction.normalized * _BlastController.dashController.velocity * _BlastController.powerMultiplier;
+            }else if(_grounded || _StickToWallController.Stuck){
                 _BlastController.dashController.canDash = true;
             }
         }
 
         #endregion
 
+        #region stick_to_wall
+
+        private void StickToWallCheck(){
+            _StickToWallController.StickLeft = false;
+            _StickToWallController.StickRight = false;
+            if(_StickToWallController.StickToWallEnabled){
+                bool _leftWallHit;
+                bool _rightWallHit;
+                _leftWallHit = Physics2D.CapsuleCast(_col.bounds.center, _col.size, _col.direction, 0, Vector2.left, _stats.WallerDistance, wallLayer);
+                _rightWallHit = Physics2D.CapsuleCast(_col.bounds.center, _col.size, _col.direction, 0, Vector2.right, _stats.WallerDistance, wallLayer);
+                if(!_grounded && _frameVelocity.y <= 0){
+                    if(_leftWallHit){
+                        _StickToWallController.StickLeft = true;
+                    }else if(_rightWallHit){
+                        _StickToWallController.StickRight = true;
+                    }
+                }
+            }
+            _StickToWallController.Stuck = _StickToWallController.StickLeft || _StickToWallController.StickRight;
+        }
+
+        #endregion
 
         private void MovementTrackerTask(){
             Vector2 Move = new Vector2(Input.GetAxisRaw("Horizontal"), Input.GetAxisRaw("Vertical"));
@@ -353,17 +365,23 @@ namespace prototype
 
             if (_frameInput.JumpDown)
             {
-                _jumpToConsume = true;
-                _timeJumpWasPressed = _time;
+                _JumpController.JumpToConsume = true;
+                _JumpController.TimeJumpWasPressed = _time;
             }
         }
 
-
+        private void ApplyGravityCheck(){
+            if(_DashController.isDashing == true || _BlastController.dashController.isDashing == true || _StickToWallController.Stuck){
+                _applyGravityCheck = false;
+            }else{
+                _applyGravityCheck = true;
+            }
+        }
 
         #region Dash
 
         private void CheckDashTask(){
-            if(Input.GetKeyDown("e") && _DashController.canDash){
+            if(Input.GetKeyDown("e") && _DashController.canDash && _DashController.cooldownPassed){
 
                 _DashController.isDashing = true;
                 _DashController.canDash = false;  
@@ -379,6 +397,7 @@ namespace prototype
             }
             RunDash();
         }
+
         private IEnumerator StopDash(){
             yield return new WaitForSeconds(_DashController.duration);
             _DashController.isDashing = false;
@@ -386,11 +405,10 @@ namespace prototype
             _DashController.cooldownPassed = true;
         }
 
-        
         private void RunDash(){
             if(_DashController.isDashing){
                 _frameVelocity = _DashController.direction.normalized * _DashController.velocity;
-            }else if(_grounded && _DashController.canDash == false && _DashController.cooldownPassed){
+            }else if(_grounded || _StickToWallController.Stuck){
                 _DashController.canDash = true;
             }
         }
@@ -403,7 +421,10 @@ namespace prototype
             CheckCollisions();
 
             HandleJump();
-            HandleDirection();
+
+            // do not change order
+            HandleHorizontalDirection();
+            HandleVerticalDirection();
             HandleGravity();
             
             ApplyMovement();
@@ -414,25 +435,26 @@ namespace prototype
         private float _frameLeftGrounded = float.MinValue;
         private bool _grounded;
 
-        private void CheckCollisions()
-        {
+        private void CheckCollisions(){
             Physics2D.queriesStartInColliders = false;
 
             // Ground and Ceiling
-            bool groundHit = Physics2D.CapsuleCast(_col.bounds.center, _col.size, _col.direction, 0, Vector2.down, _stats.GrounderDistance, ~_stats.PlayerLayer);
-            bool ceilingHit = Physics2D.CapsuleCast(_col.bounds.center, _col.size, _col.direction, 0, Vector2.up, _stats.GrounderDistance, ~_stats.PlayerLayer);
+            bool groundHit = Physics2D.CapsuleCast(_col.bounds.center, _col.size, _col.direction, 0, Vector2.down, _stats.GrounderDistance, groundLayer);
+            bool ceilingHit = Physics2D.CapsuleCast(_col.bounds.center, _col.size, _col.direction, 0, Vector2.up, _stats.GrounderDistance, groundLayer);
 
             // Hit a Ceiling
             if (ceilingHit) _frameVelocity.y = Mathf.Min(0, _frameVelocity.y);
 
             // Landed on the Ground
+
             if (!_grounded && groundHit)
             {
                 _grounded = true;
-                _coyoteUsable = true;
-                _bufferedJumpUsable = true;
-                _endedJumpEarly = false;
+                _JumpController.CoyoteUsable = true;
+                _JumpController.BufferedJumpUsable = true;
+                _JumpController.EndedJumpEarly = false;
                 GroundedChanged?.Invoke(true, Mathf.Abs(_frameVelocity.y));
+
             }
             // Left the Ground
             else if (_grounded && !groundHit)
@@ -449,34 +471,49 @@ namespace prototype
 
         #region Jumping
 
-        private bool _jumpToConsume;
-        private bool _bufferedJumpUsable;
-        private bool _endedJumpEarly;
-        private bool _coyoteUsable;
-        private float _timeJumpWasPressed;
-
-        private bool HasBufferedJump => _bufferedJumpUsable && _time < _timeJumpWasPressed + _stats.JumpBuffer;
-        private bool CanUseCoyote => _coyoteUsable && !_grounded && _time < _frameLeftGrounded + _stats.CoyoteTime;
+        private bool HasBufferedJump => _JumpController.BufferedJumpUsable && _time < _JumpController.TimeJumpWasPressed + _stats.JumpBuffer;
+        private bool CanUseCoyote => _JumpController.CoyoteUsable && !_grounded && _time < _frameLeftGrounded + _stats.CoyoteTime;
 
         private void HandleJump()
         {
-            if (!_endedJumpEarly && !_grounded && !_frameInput.JumpHeld && _rb.linearVelocity.y > 0) _endedJumpEarly = true;
+            _JumpController.canJump = false;
+            if (!_JumpController.EndedJumpEarly && !_grounded && !_frameInput.JumpHeld && _rb.linearVelocity.y > 0){
+                _JumpController.EndedJumpEarly = true;
+            } 
+            if (!_JumpController.JumpToConsume && !HasBufferedJump){
+                return;
+            }
 
-            if (!_jumpToConsume && !HasBufferedJump) return;
+            if(_StickToWallController.Stuck || _grounded || CanUseCoyote){
+                _JumpController.canJump = true;
+            }
 
-            if (_grounded || CanUseCoyote) ExecuteJump();
+            if(_JumpController.canJump){
+                ExecuteJump();
+            }
+            
+            _JumpController.JumpToConsume = false;
 
-            _jumpToConsume = false;
+
         }
 
         private void ExecuteJump()
         {
-            _animator.SetTrigger("Jump");
-            _endedJumpEarly = false;
-            _timeJumpWasPressed = 0;
-            _bufferedJumpUsable = false;
-            _coyoteUsable = false;
+            Debug.Log("_StickToWallController.Stuck : " + _StickToWallController.Stuck);
+            Debug.Log("_grounded : " + _grounded);
+            Debug.Log("CanUseCoyote : " + CanUseCoyote);
+            _JumpController.EndedJumpEarly = false;
+            _JumpController.TimeJumpWasPressed = 0;
+            _JumpController.BufferedJumpUsable = false;
+            _JumpController.CoyoteUsable = false;      
             _frameVelocity.y = _stats.JumpPower;
+            if(_StickToWallController.StickLeft){
+                _frameVelocity.x = _stats.JumpFromWallPower;
+                _StickToWallController.Stuck = false;
+            }else if(_StickToWallController.StickRight){
+                _frameVelocity.x = -1 * _stats.JumpFromWallPower;
+                _StickToWallController.Stuck = false;
+            }
             Jumped?.Invoke();
         }
 
@@ -484,7 +521,7 @@ namespace prototype
 
         #region Horizontal
 
-        private void HandleDirection()
+        private void HandleHorizontalDirection()
         {
             if (_frameInput.Move.x == 0)
             {
@@ -499,16 +536,26 @@ namespace prototype
 
         #endregion
 
+        #region vertical
+
+        private void HandleVerticalDirection()
+        {
+            if(_StickToWallController.Stuck){
+                _frameVelocity.y = -1f;
+            }
+        }
+
+        #endregion
+
         #region Gravity
 
         private void HandleGravity()
         {
-            /* do not apply gravity while dashing */
             if (_grounded && _frameVelocity.y <= 0f){
                 _frameVelocity.y = _stats.GroundingForce;
-            }else if(_DashController.isDashing == false){
+            }else if(_applyGravityCheck == true){
                 var inAirGravity = _stats.FallAcceleration;
-                if (_endedJumpEarly && _frameVelocity.y > 0) inAirGravity *= _stats.JumpEndEarlyGravityModifier;
+                if (_JumpController.EndedJumpEarly && _frameVelocity.y > 0) inAirGravity *= _stats.JumpEndEarlyGravityModifier;
                 _frameVelocity.y = Mathf.MoveTowards(_frameVelocity.y, -_stats.MaxFallSpeed, inAirGravity * Time.fixedDeltaTime);
             }
         }
@@ -545,6 +592,7 @@ namespace prototype
         public float PrefabSpawnDynamicOffset;
         public Vector2 PrefabSpawnStaticOffset;
         public Vector2 direction;
+        public float powerMultiplier;
     }
 
     public struct AttackController
@@ -557,6 +605,26 @@ namespace prototype
         public Vector2 direction;
     }
     
+    public struct StickToWallController
+    {
+        public bool StickLeft;
+        public bool StickRight;
+        public bool StickToWallEnabled;
+        public bool Stuck;
+    }
+
+    public struct JumpController
+    {
+        public bool JumpToConsume;
+        public bool BufferedJumpUsable;
+        public bool EndedJumpEarly;
+        public bool CoyoteUsable;
+        public float TimeJumpWasPressed;
+        public bool canJump;
+        public bool jumpEnabled;
+    }
+
+
     public struct MovementTracker
     {
         public Vector2 lastMove;

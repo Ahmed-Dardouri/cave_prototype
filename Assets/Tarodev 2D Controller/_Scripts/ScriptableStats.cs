@@ -8,6 +8,9 @@ namespace prototype
         [Header("LAYERS")] [Tooltip("Set this to the layer your player is on")]
         public LayerMask PlayerLayer;
 
+        [Tooltip("Set this to the layer your wall is on")]
+        public LayerMask wallLayer;
+
         [Header("INPUT")] [Tooltip("Makes all Input snap to an integer. Prevents gamepads from walking slowly. Recommended value is true to ensure gamepad/keybaord parity.")]
         public bool SnapInput = true;
 
@@ -35,8 +38,14 @@ namespace prototype
         [Tooltip("The detection distance for grounding and roof detection"), Range(0f, 0.5f)]
         public float GrounderDistance = 0.05f;
 
-        [Header("JUMP")] [Tooltip("The immediate velocity applied when jumping")]
+        [Tooltip("The detection distance for walls detection"), Range(0f, 0.5f)]
+        public float WallerDistance = 0.05f;
+
+        [Header("JUMP")] [Tooltip("The immediate vertical velocity applied when jumping")]
         public float JumpPower = 36;
+
+        [Tooltip("The immediate horizontal velocity applied when jumping from wall")]
+        public float JumpFromWallPower = 10;
 
         [Tooltip("The maximum vertical movement speed")]
         public float MaxFallSpeed = 40;
