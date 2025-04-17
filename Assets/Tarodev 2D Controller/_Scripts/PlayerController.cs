@@ -218,7 +218,6 @@ namespace prototype
         private void RunAttack(){
             if(_AttackController.dashController.isDashing){
                 _frameVelocity = _AttackController.direction.normalized * _AttackController.dashController.velocity;
-                Debug.Log("_frameVelocity : " + _frameVelocity);
             }else if(_grounded && _AttackController.dashController.canDash == false && _AttackController.dashController.cooldownPassed){
                 _AttackController.dashController.canDash = true;
             }
@@ -441,7 +440,6 @@ namespace prototype
             // Ground and Ceiling
             bool groundHit = Physics2D.CapsuleCast(_col.bounds.center, _col.size, _col.direction, 0, Vector2.down, _stats.GrounderDistance, groundLayer);
             bool ceilingHit = Physics2D.CapsuleCast(_col.bounds.center, _col.size, _col.direction, 0, Vector2.up, _stats.GrounderDistance, groundLayer);
-
             // Hit a Ceiling
             if (ceilingHit) _frameVelocity.y = Mathf.Min(0, _frameVelocity.y);
 
@@ -499,9 +497,6 @@ namespace prototype
 
         private void ExecuteJump()
         {
-            Debug.Log("_StickToWallController.Stuck : " + _StickToWallController.Stuck);
-            Debug.Log("_grounded : " + _grounded);
-            Debug.Log("CanUseCoyote : " + CanUseCoyote);
             _JumpController.EndedJumpEarly = false;
             _JumpController.TimeJumpWasPressed = 0;
             _JumpController.BufferedJumpUsable = false;
