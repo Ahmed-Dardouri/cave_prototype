@@ -218,7 +218,7 @@ namespace prototype
         private void RunAttack(){
             if(_AttackController.dashController.isDashing){
                 _frameVelocity = _AttackController.direction.normalized * _AttackController.dashController.velocity;
-            }else if(_grounded && _AttackController.dashController.canDash == false && _AttackController.dashController.cooldownPassed){
+            }else if(_AttackController.dashController.canDash == false && _AttackController.dashController.cooldownPassed){
                 _AttackController.dashController.canDash = true;
             }
         }
