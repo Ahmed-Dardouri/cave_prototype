@@ -243,7 +243,7 @@ public class PlayerController : MonoBehaviour, IPlayerController
         }
 
         
-
+    
         // Calculate the spawn position using an offset so it's in front of the player
         Vector2 spawnPosition = (Vector2)transform.position + _BlastController.PrefabSpawnStaticOffset + direction * _BlastController.PrefabSpawnDynamicOffset;
 
@@ -260,9 +260,9 @@ public class PlayerController : MonoBehaviour, IPlayerController
             _BlastController.dashController.canDash = false;  
             _BlastController.dashController.cooldownPassed = false;
 
-            _BlastController.direction = _MovementTracker.lastMove * -1;
+            _BlastController.direction = _MovementTracker.lastMove;
 
-            if((_BlastController.direction == Vector2.left && _StickToWallController.StickRight) || (_BlastController.direction == Vector2.right && _StickToWallController.StickLeft)){
+            if((_BlastController.direction == Vector2.right && _StickToWallController.StickRight) || (_BlastController.direction == Vector2.left && _StickToWallController.StickLeft)){
                 _BlastController.powerMultiplier = 1.3f;
             }else if (_StickToWallController.Stuck && _BlastController.direction.y != 0){
                 _BlastController.powerMultiplier = 0;
@@ -272,7 +272,7 @@ public class PlayerController : MonoBehaviour, IPlayerController
 
             // _StickToWallController.StickToWallEnabled = false;
 
-            BlastPrefabCreate(_BlastController.direction * -1);
+            BlastPrefabCreate(_BlastController.direction);
 
             if(_BlastController.direction == Vector2.zero){
                 _BlastController.direction = new Vector2(transform.localScale.x, 0);
@@ -293,7 +293,7 @@ public class PlayerController : MonoBehaviour, IPlayerController
 
     private void RunBlast(){
         if(_BlastController.dashController.isDashing){
-            _frameVelocity = _BlastController.direction.normalized * _BlastController.dashController.velocity * _BlastController.powerMultiplier;
+            _frameVelocity = _BlastController.direction.normalized * _BlastController.dashController.velocity * _BlastController.powerMultiplier * -1;
         }else if(_grounded || _StickToWallController.Stuck){
             _BlastController.dashController.canDash = true;
         }
