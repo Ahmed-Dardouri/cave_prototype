@@ -259,8 +259,9 @@ public class PlayerController : MonoBehaviour, IPlayerController
             _BlastController.dashController.isDashing = true;
             _BlastController.dashController.canDash = false;  
             _BlastController.dashController.cooldownPassed = false;
+            Debug.Log("_MovementTracker.lastMove : " + _MovementTracker.lastMove.normalized);
 
-            _BlastController.direction = _MovementTracker.lastMove;
+            _BlastController.direction = _MovementTracker.lastMove.normalized;
 
             if((_BlastController.direction == Vector2.right && _StickToWallController.StickRight) || (_BlastController.direction == Vector2.left && _StickToWallController.StickLeft)){
                 _BlastController.powerMultiplier = 1.3f;
@@ -293,7 +294,7 @@ public class PlayerController : MonoBehaviour, IPlayerController
 
     private void RunBlast(){
         if(_BlastController.dashController.isDashing){
-            _frameVelocity = _BlastController.direction.normalized * _BlastController.dashController.velocity * _BlastController.powerMultiplier * -1;
+            _frameVelocity = _BlastController.direction * _BlastController.dashController.velocity * _BlastController.powerMultiplier * -1;
         }else if(_grounded || _StickToWallController.Stuck){
             _BlastController.dashController.canDash = true;
         }
